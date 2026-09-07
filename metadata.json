@@ -1,0 +1,6 @@
+{
+  "name": "Termux CommandDeck",
+  "description": "Local control deck and automation manager for Termux on Android.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
