@@ -26,13 +26,13 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -167,10 +168,9 @@ fun CustomToolsScreen(
                         tool = tool,
                         onExecute = { viewModel.openExecutionDialog(tool) },
                         onEdit = { viewModel.openEditDialog(tool) },
-                        onDelete = { viewModel.deleteTool(tool.id) },
-                        onToggle = { viewModel.toggleToolEnabled(tool) }
+                        onDelete = { viewModel.deleteTool(tool.id) }
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
             }
         }
@@ -203,8 +203,7 @@ fun CustomToolCard(
     tool: CustomTool,
     onExecute: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit,
-    onToggle: () -> Unit
+    onDelete: () -> Unit
 ) {
     val toolAccent = try {
         Color(android.graphics.Color.parseColor(tool.accentColor))
@@ -216,143 +215,120 @@ fun CustomToolCard(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("custom_tool_card_${tool.id}"),
-        shape = RoundedCornerShape(22.dp),
-        borderColor = if (tool.enabled) toolAccent.copy(alpha = 0.40f) else DeckBorderGlass,
-        topGlowColor = if (tool.enabled) toolAccent else null,
-        topGlowFraction = 1f
+        shape = RoundedCornerShape(16.dp),
+        borderColor = toolAccent.copy(alpha = 0.30f),
+        topGlowColor = toolAccent,
+        topGlowFraction = 0.3f
     ) {
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(toolAccent.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
-                            .border(1.dp, toolAccent.copy(alpha = 0.4f), RoundedCornerShape(8.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Terminal,
-                            contentDescription = null,
-                            tint = toolAccent,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = tool.name,
-                            color = DeckTextPrimary,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = tool.executable,
-                            color = toolAccent,
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
-
-                Switch(
-                    checked = tool.enabled,
-                    onCheckedChange = { onToggle() },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = toolAccent,
-                        uncheckedThumbColor = DeckTextMuted,
-                        uncheckedTrackColor = DeckSurfaceElevated
-                    )
-                )
-            }
-
-            if (tool.description.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = tool.description,
-                    color = DeckTextSecondary,
-                    fontSize = 12.sp
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Arguments template preview
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Icon
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(DeckSurfaceElevated, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(toolAccent.copy(alpha = 0.15f))
+                    .border(1.dp, toolAccent.copy(alpha = 0.40f), RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "${tool.executable} ${tool.arguments.joinToString(" ")}",
-                    color = DeckTextMuted,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 2
+                Icon(
+                    imageVector = Icons.Default.Terminal,
+                    contentDescription = null,
+                    tint = toolAccent,
+                    modifier = Modifier.size(20.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
-            // Action Buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            // Tool Info: Title/Name, Category Tag, Executable
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = tool.title.ifEmpty { tool.name },
+                    color = DeckTextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .background(toolAccent.copy(alpha = 0.20f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = tool.category.uppercase(),
+                            color = toolAccent,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = tool.executable,
+                        color = DeckTextSecondary,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Subtle edit & delete + prominent quick "Run" action button
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(
                     onClick = onEdit,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(30.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Edit,
                         contentDescription = "Edit",
-                        tint = DeckTextSecondary,
-                        modifier = Modifier.size(16.dp)
+                        tint = DeckTextMuted,
+                        modifier = Modifier.size(15.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(4.dp))
                 IconButton(
                     onClick = onDelete,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(30.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Delete",
-                        tint = DeckRed.copy(alpha = 0.8f),
-                        modifier = Modifier.size(16.dp)
+                        tint = DeckRed.copy(alpha = 0.65f),
+                        modifier = Modifier.size(15.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Box(
+                Spacer(modifier = Modifier.width(4.dp))
+                Button(
+                    onClick = onExecute,
+                    colors = ButtonDefaults.buttonColors(containerColor = toolAccent),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     modifier = Modifier
-                        .background(
-                            if (tool.enabled) toolAccent else DeckSurfaceElevated,
-                            RoundedCornerShape(8.dp)
-                        )
+                        .height(32.dp)
+                        .testTag("run_action_${tool.id}")
                 ) {
-                    IconButton(
-                        onClick = onExecute,
-                        enabled = tool.enabled,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Execute action",
-                            tint = if (tool.enabled) DeckBackground else DeckTextMuted,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = DeckBackground,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Run",
+                        color = DeckBackground,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }

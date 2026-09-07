@@ -21,7 +21,10 @@ data class DeckPreferences(
     val fontScale: Float = 1.0f,
     val animationsEnabled: Boolean = true,
     val autoExportToStorage: Boolean = true,
-    val darkThemeOnly: Boolean = true
+    val darkThemeOnly: Boolean = true,
+    val geminiApiKey: String = "",
+    val openaiApiKey: String = "",
+    val selectedAiEngine: String = "LOCAL_AIDER" // LOCAL_AIDER, GEMINI_CLOUD, OPENAI_CLOUD
 )
 
 class AppPreferencesRepository(private val context: Context) {
@@ -33,6 +36,9 @@ class AppPreferencesRepository(private val context: Context) {
         val ANIMATIONS_ENABLED = booleanPreferencesKey("animations_enabled")
         val AUTO_EXPORT = booleanPreferencesKey("auto_export")
         val DARK_THEME_ONLY = booleanPreferencesKey("dark_theme_only")
+        val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
+        val OPENAI_API_KEY = stringPreferencesKey("openai_api_key")
+        val SELECTED_AI_ENGINE = stringPreferencesKey("selected_ai_engine")
     }
 
     val preferencesFlow: Flow<DeckPreferences> = context.dataStore.data.map { prefs ->
@@ -42,7 +48,10 @@ class AppPreferencesRepository(private val context: Context) {
             fontScale = prefs[Keys.FONT_SCALE] ?: 1.0f,
             animationsEnabled = prefs[Keys.ANIMATIONS_ENABLED] ?: true,
             autoExportToStorage = prefs[Keys.AUTO_EXPORT] ?: true,
-            darkThemeOnly = prefs[Keys.DARK_THEME_ONLY] ?: true
+            darkThemeOnly = prefs[Keys.DARK_THEME_ONLY] ?: true,
+            geminiApiKey = prefs[Keys.GEMINI_API_KEY] ?: "",
+            openaiApiKey = prefs[Keys.OPENAI_API_KEY] ?: "",
+            selectedAiEngine = prefs[Keys.SELECTED_AI_ENGINE] ?: "LOCAL_AIDER"
         )
     }
 
@@ -68,6 +77,24 @@ class AppPreferencesRepository(private val context: Context) {
     suspend fun updateAutoExport(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[Keys.AUTO_EXPORT] = enabled
+        }
+    }
+
+    suspend fun updateGeminiApiKey(apiKey: String) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.GEMINI_API_KEY] = apiKey.trim()
+        }
+    }
+
+    suspend fun updateOpenAiApiKey(apiKey: String) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.OPENAI_API_KEY] = apiKey.trim()
+        }
+    }
+
+    suspend fun updateSelectedAiEngine(engine: String) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.SELECTED_AI_ENGINE] = engine
         }
     }
 }

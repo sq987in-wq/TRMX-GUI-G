@@ -19,6 +19,10 @@ class CustomToolRepository(
         list.map { it.toDomain() }
     }
 
+    val pinnedToolsFlow: Flow<List<CustomTool>> = customToolDao.getPinnedTools().map { list ->
+        list.map { it.toDomain() }
+    }
+
     suspend fun getToolById(id: String): CustomTool? = withContext(Dispatchers.IO) {
         customToolDao.getToolById(id)?.toDomain()
     }
@@ -33,6 +37,10 @@ class CustomToolRepository(
 
     suspend fun toggleToolEnabled(id: String, enabled: Boolean) = withContext(Dispatchers.IO) {
         customToolDao.setToolEnabled(id, enabled)
+    }
+
+    suspend fun toggleToolPinned(id: String, isPinned: Boolean) = withContext(Dispatchers.IO) {
+        customToolDao.setToolPinned(id, isPinned)
     }
 
     suspend fun updateToolOrder(id: String, order: Int) = withContext(Dispatchers.IO) {

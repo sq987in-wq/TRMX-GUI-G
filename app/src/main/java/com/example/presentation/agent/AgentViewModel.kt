@@ -23,7 +23,11 @@ data class AgentUiState(
     val inputText: String = "",
     val isSending: Boolean = false,
     val serverHealth: ServerHealth = ServerHealth(),
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val selectedEngine: String = "GEMINI_CLOUD", // GEMINI_CLOUD, OPENAI_CLOUD, LOCAL_AIDER
+    val geminiApiKey: String = "",
+    val openaiApiKey: String = "",
+    val showApiKeyDialog: Boolean = false
 )
 
 class AgentViewModel(
@@ -43,6 +47,13 @@ class AgentViewModel(
         viewModelScope.launch {
             preferencesRepo.preferencesFlow.collect { prefs ->
                 serverConfig = ServerConfig(prefs.backendHost, prefs.backendPort)
+                _uiState.update {
+                    it.copy(
+                        selectedEngine = prefs.selectedAiEngine,
+                        geminiApiKey = prefs.geminiApiKey,
+                        openaiApiKey = prefs.openaiApiKey
+                    )
+                }
                 checkHealthAndInitSession()
             }
         }
@@ -66,14 +77,46 @@ class AgentViewModel(
         _uiState.update { it.copy(inputText = text) }
     }
 
+    fun selectEngine(engine: String) {
+        _uiState.update { it.copy(selectedEngine = engine) }
+        viewModelScope.launch {
+            preferencesRepo.updateSelectedAiEngine(engine)
+        }
+    }
+
+    fun setShowApiKeyDialog(show: Boolean) {
+        _uiState.update { it.copy(showApiKeyDialog = show) }
+    }
+
+    fun saveApiKeys(geminiKey: String, openaiKey: String) {
+        _uiState.update {
+            it.copy(
+                geminiApiKey = geminiKey.trim(),
+                openaiApiKey = openaiKey.trim(),
+                showApiKeyDialog = false
+            )
+        }
+        viewModelScope.launch {
+            preferencesRepo.updateGeminiApiKey(geminiKey)
+            preferencesRepo.updateOpenAiApiKey(openaiKey)
+        }
+    }
+
     fun sendMessage() {
         val text = _uiState.value.inputText.trim()
         if (text.isEmpty()) return
 
+        val state = _uiState.value
         _uiState.update { it.copy(inputText = "", isSending = true, errorMessage = null) }
 
         viewModelScope.launch {
-            val result = agentRepo.sendMessage(serverConfig, text)
+            val result = agentRepo.sendMessage(
+                config = serverConfig,
+                userPrompt = text,
+                engine = state.selectedEngine,
+                geminiApiKey = state.geminiApiKey,
+                openaiApiKey = state.openaiApiKey
+            )
             _uiState.update { it.copy(isSending = false) }
             result.onFailure { err ->
                 _uiState.update { it.copy(errorMessage = err.localizedMessage) }

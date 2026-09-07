@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,12 +24,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.StopCircle
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -38,6 +46,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -86,85 +97,143 @@ fun AgentScreen(
         }
     }
 
+    if (uiState.showApiKeyDialog) {
+        ApiKeySettingsDialog(
+            initialGeminiKey = uiState.geminiApiKey,
+            initialOpenAiKey = uiState.openaiApiKey,
+            onDismiss = { viewModel.setShowApiKeyDialog(false) },
+            onSave = { gemini, openai -> viewModel.saveApiKeys(gemini, openai) }
+        )
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(DeckBackground)
     ) {
-        // Agent Top Bar
+        // Clean Top Action Bar with Engine Dropdown & Key Settings
+        var engineMenuExpanded by remember { mutableStateOf(false) }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 14.dp),
+                .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
+            // Engine Selector Dropdown
+            Box {
+                val currentEngineName = when (uiState.selectedEngine) {
+                    "GEMINI_CLOUD" -> "Gemini 2.5 Flash"
+                    "OPENAI_CLOUD" -> "GPT-4o Mini"
+                    else -> "Local CLI Assistant"
+                }
+                val currentEngineColor = when (uiState.selectedEngine) {
+                    "GEMINI_CLOUD" -> DeckCyan
+                    "OPENAI_CLOUD" -> DeckEmerald
+                    else -> DeckPurple
+                }
+
+                Row(
                     modifier = Modifier
-                        .size(38.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(DeckPurple.copy(alpha = 0.20f))
-                        .border(1.dp, DeckPurple.copy(alpha = 0.50f), RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center
+                        .background(currentEngineColor.copy(alpha = 0.15f))
+                        .border(1.dp, currentEngineColor.copy(alpha = 0.40f), RoundedCornerShape(12.dp))
+                        .clickable { engineMenuExpanded = true }
+                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                        .testTag("ai_engine_selector"),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .background(currentEngineColor, CircleShape)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = currentEngineName,
+                        color = DeckTextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = "AI Agent",
-                        tint = DeckPurple,
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = "Select AI Engine",
+                        tint = currentEngineColor,
                         modifier = Modifier.size(20.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(
-                        text = "AI Copilot",
-                        color = DeckTextPrimary,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = (-0.5).sp
-                    )
-                    Text(
-                        text = "Termux CLI & Scripting Agent",
-                        color = DeckTextMuted,
-                        fontSize = 11.sp
-                    )
-                }
-            }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val isOnline = uiState.serverHealth.status == ServerStatus.ONLINE
-                Box(
+                DropdownMenu(
+                    expanded = engineMenuExpanded,
+                    onDismissRequest = { engineMenuExpanded = false },
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(if (isOnline) DeckEmerald.copy(alpha = 0.15f) else DeckRed.copy(alpha = 0.15f))
-                        .border(
-                            1.dp,
-                            if (isOnline) DeckEmerald.copy(alpha = 0.35f) else DeckRed.copy(alpha = 0.35f),
-                            RoundedCornerShape(10.dp)
-                        )
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .background(DeckSurfaceElevated)
+                        .border(1.dp, DeckBorderGlass, RoundedCornerShape(8.dp))
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .background(if (isOnline) DeckEmerald else DeckRed, CircleShape)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (isOnline) "ONLINE" else "OFFLINE",
-                            color = if (isOnline) DeckEmerald else DeckRed,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
+                    listOf(
+                        Triple("GEMINI_CLOUD", "Gemini 2.5 Flash", DeckCyan),
+                        Triple("OPENAI_CLOUD", "GPT-4o Mini", DeckEmerald),
+                        Triple("LOCAL_AIDER", "Local CLI Assistant", DeckPurple)
+                    ).forEach { (engineId, label, color) ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .background(color, CircleShape)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = label,
+                                        color = if (uiState.selectedEngine == engineId) color else DeckTextPrimary,
+                                        fontWeight = if (uiState.selectedEngine == engineId) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                            },
+                            onClick = {
+                                viewModel.selectEngine(engineId)
+                                engineMenuExpanded = false
+                            }
                         )
                     }
                 }
+            }
+
+            // Right Actions: API Key / Settings icon button & Clear chat icon button
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Key / Settings icon button
+                IconButton(
+                    onClick = { viewModel.setShowApiKeyDialog(true) },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.White.copy(alpha = 0.06f))
+                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+                        .testTag("ai_settings_key_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Key,
+                        contentDescription = "API Key Settings",
+                        tint = if (uiState.geminiApiKey.isNotBlank() || uiState.openaiApiKey.isNotBlank()) DeckCyan else DeckTextMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
                 Spacer(modifier = Modifier.width(8.dp))
+
+                // Clear Chat button
                 IconButton(
                     onClick = { viewModel.clearChat() },
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.White.copy(alpha = 0.06f))
+                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+                        .testTag("clear_chat_button")
                 ) {
                     Icon(
                         imageVector = Icons.Default.ClearAll,
@@ -464,4 +533,117 @@ fun MarkdownFormattedText(text: String) {
             }
         }
     }
+}
+
+@Composable
+fun ApiKeySettingsDialog(
+    initialGeminiKey: String,
+    initialOpenAiKey: String,
+    onDismiss: () -> Unit,
+    onSave: (String, String) -> Unit
+) {
+    var geminiKey by remember { mutableStateOf(initialGeminiKey) }
+    var openaiKey by remember { mutableStateOf(initialOpenAiKey) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = DeckSurfaceElevated,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Key,
+                    contentDescription = null,
+                    tint = DeckCyan,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "AI Engine API Keys",
+                    color = DeckTextPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        text = {
+            Column {
+                Text(
+                    text = "Configure API keys to use cloud AI engines directly. Keys are saved securely on device.",
+                    color = DeckTextSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Google Gemini Key
+                Text(
+                    text = "Google AI (Gemini) API Key",
+                    color = DeckCyan,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = geminiKey,
+                    onValueChange = { geminiKey = it },
+                    placeholder = { Text("AIzaSy...", fontSize = 12.sp, color = DeckTextMuted) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("gemini_key_input"),
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = DeckCyan,
+                        unfocusedBorderColor = DeckBorderGlass,
+                        focusedTextColor = DeckTextPrimary,
+                        unfocusedTextColor = DeckTextPrimary
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // OpenAI Key
+                Text(
+                    text = "OpenAI API Key",
+                    color = DeckEmerald,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = openaiKey,
+                    onValueChange = { openaiKey = it },
+                    placeholder = { Text("sk-proj-...", fontSize = 12.sp, color = DeckTextMuted) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("openai_key_input"),
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = DeckEmerald,
+                        unfocusedBorderColor = DeckBorderGlass,
+                        focusedTextColor = DeckTextPrimary,
+                        unfocusedTextColor = DeckTextPrimary
+                    )
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(geminiKey, openaiKey) },
+                colors = ButtonDefaults.buttonColors(containerColor = DeckCyan),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.testTag("save_api_keys_button")
+            ) {
+                Text("Save Keys", color = DeckBackground, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = DeckTextSecondary)
+            }
+        }
+    )
 }

@@ -22,6 +22,7 @@ import java.util.UUID
 
 class AgentRepository(
     private val sseClient: AgentSseClient = AgentSseClient(),
+    private val aiEngineClient: AiEngineClient = AiEngineClient(),
     private val scope: CoroutineScope
 ) {
     private val _currentSession = MutableStateFlow<AgentSession?>(null)
@@ -29,7 +30,7 @@ class AgentRepository(
 
     private var streamingJob: Job? = null
 
-    suspend fun getOrCreateSession(config: ServerConfig): Result<AgentSession> = withContext(Dispatchers.IO) {
+    suspend fun getOrCreateSession(config: ServerConfig, engineTitle: String = "CLI Agent"): Result<AgentSession> = withContext(Dispatchers.IO) {
         val existing = _currentSession.value
         if (existing != null) return@withContext Result.success(existing)
 
@@ -45,23 +46,22 @@ class AgentRepository(
                         AgentMessage(
                             id = "welcome_msg",
                             role = MessageRole.ASSISTANT,
-                            content = "CommandDeck CLI Agent initialized. Ask about Termux packages, CLI pipelines, bash scripts, or task debugging."
+                            content = "CommandDeck CLI Agent initialized. Ready to execute terminal workflows, Termux pipelines, and scripts."
                         )
                     )
                 )
                 _currentSession.value = session
                 Result.success(session)
             } else {
-                // Fallback to local session ID if backend session endpoint responds without body
                 val fallbackId = "session_" + UUID.randomUUID().toString().take(8)
                 val session = AgentSession(
                     sessionId = fallbackId,
-                    title = "Local Assistant",
+                    title = "Assistant Session",
                     messages = listOf(
                         AgentMessage(
                             id = "welcome_msg",
                             role = MessageRole.ASSISTANT,
-                            content = "CommandDeck Agent ready. Connect to Termux backend on localhost to execute agent actions."
+                            content = "CommandDeck AI Agent ready. Select an engine or run local Termux tasks."
                         )
                     )
                 )
@@ -69,16 +69,15 @@ class AgentRepository(
                 Result.success(session)
             }
         } catch (e: Exception) {
-            // Local fallback session
             val fallbackId = "session_" + UUID.randomUUID().toString().take(8)
             val session = AgentSession(
                 sessionId = fallbackId,
-                title = "Local Assistant",
+                title = "Assistant Session",
                 messages = listOf(
                     AgentMessage(
                         id = "welcome_msg",
                         role = MessageRole.ASSISTANT,
-                        content = "Termux agent offline. Please start the Termux backend service at ${config.baseUrl}."
+                        content = "CommandDeck Agent ready. Switch engine to Gemini or OpenAI, or connect to Termux backend on localhost."
                     )
                 )
             )
@@ -89,7 +88,10 @@ class AgentRepository(
 
     suspend fun sendMessage(
         config: ServerConfig,
-        userPrompt: String
+        userPrompt: String,
+        engine: String = "LOCAL_AIDER",
+        geminiApiKey: String = "",
+        openaiApiKey: String = ""
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val session = _currentSession.value ?: getOrCreateSession(config).getOrNull()
             ?: return@withContext Result.failure(Exception("No active agent session"))
@@ -115,35 +117,22 @@ class AgentRepository(
             )
         }
 
-        try {
-            val api = ApiClientFactory.createService(config)
-            val response = api.sendAgentMessage(session.sessionId, SendMessageRequest(userPrompt))
-            if (!response.isSuccessful) {
-                _currentSession.update { current ->
-                    current?.copy(
-                        isGenerating = false,
-                        messages = current.messages.map { msg ->
-                            if (msg.id == assistantMessageId) {
-                                msg.copy(
-                                    content = "Backend error (${response.code()}): ${response.errorBody()?.string() ?: "Failed to generate"}",
-                                    isStreaming = false
-                                )
-                            } else msg
-                        }
-                    )
-                }
-                return@withContext Result.failure(Exception("Failed to send message: ${response.code()}"))
-            }
+        // Prepare conversation history for cloud models
+        val history = session.messages.filter { it.content.isNotBlank() && !it.isStreaming }
+            .takeLast(6)
+            .map { (if (it.role == MessageRole.USER) "user" else "assistant") to it.content }
 
-            // Stream response tokens via SSE
-            streamingJob?.cancel()
-            streamingJob = scope.launch(Dispatchers.IO) {
-                val sseUrl = config.agentSessionEventsUrl(session.sessionId)
-                val buffer = StringBuilder()
-                sseClient.streamSessionEvents(sseUrl).collect { event ->
-                    when (event) {
-                        is AgentEvent.Token -> {
-                            buffer.append(event.text)
+        when (engine) {
+            "GEMINI_CLOUD" -> {
+                streamingJob?.cancel()
+                streamingJob = scope.launch(Dispatchers.IO) {
+                    val buffer = StringBuilder()
+                    aiEngineClient.streamGemini(
+                        apiKey = geminiApiKey,
+                        prompt = userPrompt,
+                        conversationHistory = history,
+                        onToken = { token ->
+                            buffer.append(token)
                             _currentSession.update { cur ->
                                 cur?.copy(
                                     messages = cur.messages.map { msg ->
@@ -153,67 +142,186 @@ class AgentRepository(
                                     }
                                 )
                             }
-                        }
-                        is AgentEvent.MessageComplete -> {
-                            val finalContent = if (event.fullText.isNotEmpty()) event.fullText else buffer.toString()
+                        },
+                        onComplete = { fullText ->
                             _currentSession.update { cur ->
                                 cur?.copy(
                                     isGenerating = false,
                                     messages = cur.messages.map { msg ->
                                         if (msg.id == assistantMessageId) {
-                                            msg.copy(content = finalContent, isStreaming = false)
+                                            msg.copy(content = fullText, isStreaming = false)
                                         } else msg
                                     }
                                 )
                             }
-                        }
-                        is AgentEvent.Error -> {
-                            buffer.append("\n[Error: ${event.message}]")
+                        },
+                        onError = { errMsg ->
                             _currentSession.update { cur ->
                                 cur?.copy(
                                     isGenerating = false,
                                     messages = cur.messages.map { msg ->
                                         if (msg.id == assistantMessageId) {
-                                            msg.copy(content = buffer.toString(), isStreaming = false)
+                                            msg.copy(content = errMsg, isStreaming = false)
                                         } else msg
                                     }
                                 )
                             }
-                        }
-                        is AgentEvent.Status -> {
-                            // Status update
-                        }
-                    }
-                }
-
-                _currentSession.update { cur ->
-                    cur?.copy(
-                        isGenerating = false,
-                        messages = cur.messages.map { msg ->
-                            if (msg.id == assistantMessageId) {
-                                msg.copy(isStreaming = false)
-                            } else msg
                         }
                     )
                 }
+                Result.success(Unit)
             }
 
-            Result.success(Unit)
-        } catch (e: Exception) {
-            _currentSession.update { cur ->
-                cur?.copy(
-                    isGenerating = false,
-                    messages = cur.messages.map { msg ->
-                        if (msg.id == assistantMessageId) {
-                            msg.copy(
-                                content = "Connection failed: ${e.localizedMessage ?: "Termux backend unavailable"}. Ensure the Termux backend is running at ${config.baseUrl}.",
-                                isStreaming = false
-                            )
-                        } else msg
-                    }
-                )
+            "OPENAI_CLOUD" -> {
+                streamingJob?.cancel()
+                streamingJob = scope.launch(Dispatchers.IO) {
+                    val buffer = StringBuilder()
+                    aiEngineClient.streamOpenAi(
+                        apiKey = openaiApiKey,
+                        prompt = userPrompt,
+                        conversationHistory = history,
+                        onToken = { token ->
+                            buffer.append(token)
+                            _currentSession.update { cur ->
+                                cur?.copy(
+                                    messages = cur.messages.map { msg ->
+                                        if (msg.id == assistantMessageId) {
+                                            msg.copy(content = buffer.toString(), isStreaming = true)
+                                        } else msg
+                                    }
+                                )
+                            }
+                        },
+                        onComplete = { fullText ->
+                            _currentSession.update { cur ->
+                                cur?.copy(
+                                    isGenerating = false,
+                                    messages = cur.messages.map { msg ->
+                                        if (msg.id == assistantMessageId) {
+                                            msg.copy(content = fullText, isStreaming = false)
+                                        } else msg
+                                    }
+                                )
+                            }
+                        },
+                        onError = { errMsg ->
+                            _currentSession.update { cur ->
+                                cur?.copy(
+                                    isGenerating = false,
+                                    messages = cur.messages.map { msg ->
+                                        if (msg.id == assistantMessageId) {
+                                            msg.copy(content = errMsg, isStreaming = false)
+                                        } else msg
+                                    }
+                                )
+                            }
+                        }
+                    )
+                }
+                Result.success(Unit)
             }
-            Result.failure(e)
+
+            else -> {
+                // LOCAL_AIDER: Route to Termux backend SSE
+                try {
+                    val api = ApiClientFactory.createService(config)
+                    val response = api.sendAgentMessage(session.sessionId, SendMessageRequest(userPrompt))
+                    if (!response.isSuccessful) {
+                        _currentSession.update { current ->
+                            current?.copy(
+                                isGenerating = false,
+                                messages = current.messages.map { msg ->
+                                    if (msg.id == assistantMessageId) {
+                                        msg.copy(
+                                            content = "Termux backend error (${response.code()}): ${response.errorBody()?.string() ?: "Failed to generate"}",
+                                            isStreaming = false
+                                        )
+                                    } else msg
+                                }
+                            )
+                        }
+                        return@withContext Result.failure(Exception("Failed to send message: ${response.code()}"))
+                    }
+
+                    // Stream response tokens via SSE
+                    streamingJob?.cancel()
+                    streamingJob = scope.launch(Dispatchers.IO) {
+                        val sseUrl = config.agentSessionEventsUrl(session.sessionId)
+                        val buffer = StringBuilder()
+                        sseClient.streamSessionEvents(sseUrl).collect { event ->
+                            when (event) {
+                                is AgentEvent.Token -> {
+                                    buffer.append(event.text)
+                                    _currentSession.update { cur ->
+                                        cur?.copy(
+                                            messages = cur.messages.map { msg ->
+                                                if (msg.id == assistantMessageId) {
+                                                    msg.copy(content = buffer.toString(), isStreaming = true)
+                                                } else msg
+                                            }
+                                        )
+                                    }
+                                }
+                                is AgentEvent.MessageComplete -> {
+                                    val finalContent = if (event.fullText.isNotEmpty()) event.fullText else buffer.toString()
+                                    _currentSession.update { cur ->
+                                        cur?.copy(
+                                            isGenerating = false,
+                                            messages = cur.messages.map { msg ->
+                                                if (msg.id == assistantMessageId) {
+                                                    msg.copy(content = finalContent, isStreaming = false)
+                                                } else msg
+                                            }
+                                        )
+                                    }
+                                }
+                                is AgentEvent.Error -> {
+                                    buffer.append("\n[Error: ${event.message}]")
+                                    _currentSession.update { cur ->
+                                        cur?.copy(
+                                            isGenerating = false,
+                                            messages = cur.messages.map { msg ->
+                                                if (msg.id == assistantMessageId) {
+                                                    msg.copy(content = buffer.toString(), isStreaming = false)
+                                                } else msg
+                                            }
+                                        )
+                                    }
+                                }
+                                is AgentEvent.Status -> {}
+                            }
+                        }
+
+                        _currentSession.update { cur ->
+                            cur?.copy(
+                                isGenerating = false,
+                                messages = cur.messages.map { msg ->
+                                    if (msg.id == assistantMessageId) {
+                                        msg.copy(isStreaming = false)
+                                    } else msg
+                                }
+                            )
+                        }
+                    }
+
+                    Result.success(Unit)
+                } catch (e: Exception) {
+                    _currentSession.update { cur ->
+                        cur?.copy(
+                            isGenerating = false,
+                            messages = cur.messages.map { msg ->
+                                if (msg.id == assistantMessageId) {
+                                    msg.copy(
+                                        content = "Connection failed: ${e.localizedMessage ?: "Termux backend unavailable"}. Ensure the Termux backend is running at ${config.baseUrl}, or select Cloud Gemini/OpenAI in the engine dropdown.",
+                                        isStreaming = false
+                                    )
+                                } else msg
+                            }
+                        )
+                    }
+                    Result.failure(e)
+                }
+            }
         }
     }
 

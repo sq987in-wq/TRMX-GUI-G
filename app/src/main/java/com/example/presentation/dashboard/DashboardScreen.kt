@@ -1,5 +1,7 @@
 package com.example.presentation.dashboard
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +31,8 @@ import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -55,6 +60,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,9 +72,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -77,6 +85,9 @@ import com.example.model.JobStatus
 import com.example.model.OutputFile
 import com.example.model.ServerStatus
 import com.example.presentation.components.DiagnosticsDialog
+import com.example.presentation.tools.ToolCatalogDialog
+import com.example.presentation.tools.ToolExecutionDialog
+import com.example.util.FileUtils
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import com.example.presentation.components.GlassCard
@@ -107,7 +118,6 @@ fun DashboardScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    var selectedToolTab by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(uiState.messageSnackbar) {
         uiState.messageSnackbar?.let {
@@ -122,6 +132,32 @@ fun DashboardScreen(
             onDismiss = { viewModel.setDiagnosticsVisible(false) },
             onRetry = { viewModel.checkServerHealth() },
             onEditHostPort = { _, _ -> }
+        )
+    }
+
+    if (uiState.showCatalogDialog) {
+        ToolCatalogDialog(
+            tools = uiState.allTools,
+            selectedCategory = uiState.catalogCategory,
+            onSelectCategory = { viewModel.setCatalogCategory(it) },
+            onRunTool = { tool ->
+                viewModel.setCatalogDialogVisible(false)
+                viewModel.openToolExecution(tool)
+            },
+            onTogglePin = { id, pinned ->
+                viewModel.toggleToolPinned(id, pinned)
+            },
+            onDismiss = { viewModel.setCatalogDialogVisible(false) }
+        )
+    }
+
+    uiState.executionDialogTool?.let { tool ->
+        ToolExecutionDialog(
+            tool = tool,
+            onDismiss = { viewModel.dismissToolExecution() },
+            onExecute = { inputs ->
+                viewModel.executeCustomTool(tool, inputs)
+            }
         )
     }
 
@@ -232,8 +268,6 @@ fun DashboardScreen(
             // Native Toolset Section
             item {
                 NativeToolsetSection(
-                    selectedToolTab = selectedToolTab,
-                    onSelectTab = { selectedToolTab = it },
                     uiState = uiState,
                     viewModel = viewModel
                 )
@@ -297,7 +331,11 @@ fun DashboardHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp)
+        ) {
             Text(
                 text = "CommandDeck",
                 style = TextStyle(
@@ -312,7 +350,9 @@ fun DashboardHeader(
             Spacer(modifier = Modifier.height(3.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.clickable { onOpenDiagnostics() }
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenDiagnostics() }
             ) {
                 val statusColor = when (health.status) {
                     ServerStatus.ONLINE -> DeckEmerald
@@ -338,7 +378,9 @@ fun DashboardHeader(
                     color = statusColor,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 1.sp
+                    letterSpacing = 0.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -436,17 +478,19 @@ fun SystemStatusSection(uiState: DashboardUiState) {
                 .clip(RoundedCornerShape(16.dp))
                 .background(Color.White.copy(alpha = 0.05f))
                 .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(16.dp))
-                .padding(vertical = 12.dp, horizontal = 8.dp),
+                .padding(vertical = 12.dp, horizontal = 6.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Battery", color = DeckTextSecondary, fontSize = 11.sp)
+                Text("Battery", color = DeckTextSecondary, fontSize = 11.sp, maxLines = 1)
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = if (sys != null) "${sys.batteryPercent}%" else "--",
                     color = DeckTextPrimary,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -458,18 +502,20 @@ fun SystemStatusSection(uiState: DashboardUiState) {
                 .clip(RoundedCornerShape(16.dp))
                 .background(Color.White.copy(alpha = 0.05f))
                 .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(16.dp))
-                .padding(vertical = 12.dp, horizontal = 8.dp),
+                .padding(vertical = 12.dp, horizontal = 6.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Thermal", color = DeckTextSecondary, fontSize = 11.sp)
+                Text("Thermal", color = DeckTextSecondary, fontSize = 11.sp, maxLines = 1)
                 Spacer(modifier = Modifier.height(3.dp))
                 val tempText = sys?.batteryTemperatureCelsius?.let { "${it}°C" } ?: sys?.thermalStatusText ?: "Nominal"
                 Text(
                     text = tempText,
                     color = DeckAmber,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -481,17 +527,19 @@ fun SystemStatusSection(uiState: DashboardUiState) {
                 .clip(RoundedCornerShape(16.dp))
                 .background(Color.White.copy(alpha = 0.05f))
                 .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(16.dp))
-                .padding(vertical = 12.dp, horizontal = 8.dp),
+                .padding(vertical = 12.dp, horizontal = 6.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Storage", color = DeckTextSecondary, fontSize = 11.sp)
+                Text("Storage", color = DeckTextSecondary, fontSize = 11.sp, maxLines = 1)
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = sys?.freeStorageFormatted ?: "--",
                     color = DeckTextPrimary,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -499,204 +547,620 @@ fun SystemStatusSection(uiState: DashboardUiState) {
 }
 
 @Composable
-fun MediaDownloaderForm(uiState: DashboardUiState, viewModel: DashboardViewModel) {
-    Column {
-        Text(
-            text = "Download videos or extract audio using yt-dlp inside Termux.",
-            color = DeckTextSecondary,
-            fontSize = 12.sp
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-
-        OutlinedTextField(
-            value = uiState.mediaUrl,
-            onValueChange = { viewModel.setMediaUrl(it) },
-            label = { Text("Media or Video URL") },
-            placeholder = { Text("https://www.youtube.com/watch?v=...") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("media_url_input"),
-            singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = DeckCyan,
-                unfocusedBorderColor = DeckBorderGlass,
-                focusedTextColor = DeckTextPrimary,
-                unfocusedTextColor = DeckTextPrimary
-            )
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = uiState.selectedDownloadMode == "VIDEO",
-                    onClick = { viewModel.setDownloadMode("VIDEO") },
-                    label = { Text("Video (MP4)") },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = DeckCyan.copy(alpha = 0.2f),
-                        selectedLabelColor = DeckCyan
-                    )
-                )
-                FilterChip(
-                    selected = uiState.selectedDownloadMode == "AUDIO",
-                    onClick = { viewModel.setDownloadMode("AUDIO") },
-                    label = { Text("Audio (MP3)") },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = DeckPurple.copy(alpha = 0.2f),
-                        selectedLabelColor = DeckPurple
-                    )
-                )
-            }
-
-            Button(
-                onClick = { viewModel.startMediaDownload() },
-                enabled = !uiState.isSubmittingJob,
-                colors = ButtonDefaults.buttonColors(containerColor = DeckCyan),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.testTag("start_download_button")
+fun MediaDownloaderCard(uiState: DashboardUiState, viewModel: DashboardViewModel) {
+    GlassCard(
+        modifier = Modifier
+            .width(330.dp)
+            .testTag("main_tool_card_downloader"),
+        shape = RoundedCornerShape(22.dp),
+        borderColor = DeckCyan.copy(alpha = 0.35f),
+        topGlowColor = DeckCyan,
+        topGlowFraction = 0.7f
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (uiState.isSubmittingJob) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = DeckBackground)
-                } else {
-                    Icon(imageVector = Icons.Default.CloudDownload, contentDescription = null, tint = DeckBackground, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Download", color = DeckBackground, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(DeckCyan.copy(alpha = 0.15f))
+                            .border(1.dp, DeckCyan.copy(alpha = 0.40f), RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = null,
+                            tint = DeckCyan,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Media Downloader",
+                            color = DeckTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "yt-dlp binary",
+                            color = DeckCyan,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .background(DeckCyan.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "MEDIA",
+                        color = DeckCyan,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
-        }
-    }
-}
 
-@Composable
-fun MediaCompressorForm(uiState: DashboardUiState, viewModel: DashboardViewModel) {
-    Column {
-        Text(
-            text = "Compress local video or audio using ffmpeg presets.",
-            color = DeckTextSecondary,
-            fontSize = 12.sp
-        )
-        Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-        OutlinedTextField(
-            value = uiState.compressorInputFile,
-            onValueChange = { viewModel.setCompressorInputFile(it) },
-            label = { Text("Source File Path (inside Termux or ~/storage/shared)") },
-            placeholder = { Text("~/storage/shared/Movies/sample.mp4") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("compressor_input"),
-            singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = DeckCyan,
-                unfocusedBorderColor = DeckBorderGlass,
-                focusedTextColor = DeckTextPrimary,
-                unfocusedTextColor = DeckTextPrimary
+            Text(
+                text = "Download high quality videos or audio streams directly into Termux storage.",
+                color = DeckTextSecondary,
+                fontSize = 12.sp,
+                maxLines = 2,
+                lineHeight = 16.sp
             )
-        )
 
-        Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("LOW", "MEDIUM", "ULTRA").forEach { preset ->
+            OutlinedTextField(
+                value = uiState.mediaUrl,
+                onValueChange = { viewModel.setMediaUrl(it) },
+                label = { Text("Media / Video URL") },
+                placeholder = { Text("https://www.youtube.com/watch?v=...") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("media_url_input"),
+                singleLine = true,
+                shape = RoundedCornerShape(10.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = DeckCyan,
+                    unfocusedBorderColor = DeckBorderGlass,
+                    focusedTextColor = DeckTextPrimary,
+                    unfocusedTextColor = DeckTextPrimary
+                )
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     FilterChip(
-                        selected = uiState.compressorPreset == preset,
-                        onClick = { viewModel.setCompressorPreset(preset) },
-                        label = { Text(preset) },
+                        selected = uiState.selectedDownloadMode == "VIDEO",
+                        onClick = { viewModel.setDownloadMode("VIDEO") },
+                        label = { Text("Video (MP4)", fontSize = 11.sp) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = DeckAmber.copy(alpha = 0.2f),
-                            selectedLabelColor = DeckAmber
+                            selectedContainerColor = DeckCyan.copy(alpha = 0.2f),
+                            selectedLabelColor = DeckCyan
                         )
                     )
-                }
-            }
-
-            Button(
-                onClick = { viewModel.startMediaCompression() },
-                enabled = !uiState.isSubmittingJob,
-                colors = ButtonDefaults.buttonColors(containerColor = DeckAmber),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.testTag("start_compress_button")
-            ) {
-                Icon(imageVector = Icons.Default.Tune, contentDescription = null, tint = DeckBackground, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Compress", color = DeckBackground, fontWeight = FontWeight.Bold)
-            }
-        }
-    }
-}
-
-@Composable
-fun TtsForm(uiState: DashboardUiState, viewModel: DashboardViewModel) {
-    Column {
-        Text(
-            text = "Synthesize natural spoken audio using edge-tts CLI.",
-            color = DeckTextSecondary,
-            fontSize = 12.sp
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-
-        OutlinedTextField(
-            value = uiState.ttsText,
-            onValueChange = { viewModel.setTtsText(it) },
-            label = { Text("Text to Read") },
-            placeholder = { Text("Termux CommandDeck is connected and operational.") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("tts_text_input"),
-            maxLines = 3,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = DeckCyan,
-                unfocusedBorderColor = DeckBorderGlass,
-                focusedTextColor = DeckTextPrimary,
-                unfocusedTextColor = DeckTextPrimary
-            )
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(
-                    "en-US-ChristopherNeural" to "Christopher",
-                    "en-US-JennyNeural" to "Jenny",
-                    "en-GB-SoniaNeural" to "Sonia"
-                ).forEach { (voiceId, label) ->
                     FilterChip(
-                        selected = uiState.ttsVoice == voiceId,
-                        onClick = { viewModel.setTtsVoice(voiceId) },
-                        label = { Text(label) },
+                        selected = uiState.selectedDownloadMode == "AUDIO",
+                        onClick = { viewModel.setDownloadMode("AUDIO") },
+                        label = { Text("Audio (MP3)", fontSize = 11.sp) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = DeckPurple.copy(alpha = 0.2f),
                             selectedLabelColor = DeckPurple
                         )
                     )
                 }
+
+                Button(
+                    onClick = { viewModel.startMediaDownload() },
+                    enabled = !uiState.isSubmittingJob,
+                    colors = ButtonDefaults.buttonColors(containerColor = DeckCyan),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.testTag("start_download_button")
+                ) {
+                    if (uiState.isSubmittingJob) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = DeckBackground)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = null,
+                            tint = DeckBackground,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Download", color = DeckBackground, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AudioExtractorCard(uiState: DashboardUiState, viewModel: DashboardViewModel) {
+    val context = LocalContext.current
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            val localPath = FileUtils.resolveUriToLocalPath(context, it)
+            viewModel.setExtractorInputFile(localPath)
+        }
+    }
+
+    GlassCard(
+        modifier = Modifier
+            .width(330.dp)
+            .testTag("main_tool_card_extractor"),
+        shape = RoundedCornerShape(22.dp),
+        borderColor = DeckEmerald.copy(alpha = 0.35f),
+        topGlowColor = DeckEmerald,
+        topGlowFraction = 0.7f
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(DeckEmerald.copy(alpha = 0.15f))
+                            .border(1.dp, DeckEmerald.copy(alpha = 0.40f), RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GraphicEq,
+                            contentDescription = null,
+                            tint = DeckEmerald,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Audio Extractor",
+                            color = DeckTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "ffmpeg -vn",
+                            color = DeckEmerald,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .background(DeckEmerald.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "MEDIA",
+                        color = DeckEmerald,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
-            Button(
-                onClick = { viewModel.startTts() },
-                enabled = !uiState.isSubmittingJob,
-                colors = ButtonDefaults.buttonColors(containerColor = DeckPurple),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.testTag("start_tts_button")
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Extract crystal clear MP3 audio track from any video file on device.",
+                color = DeckTextSecondary,
+                fontSize = 12.sp,
+                maxLines = 2,
+                lineHeight = 16.sp
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(imageVector = Icons.Default.VolumeUp, contentDescription = null, tint = DeckBackground, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Synthesize", color = DeckBackground, fontWeight = FontWeight.Bold)
+                OutlinedTextField(
+                    value = uiState.extractorInputFile,
+                    onValueChange = { viewModel.setExtractorInputFile(it) },
+                    label = { Text("Source Video") },
+                    placeholder = { Text("Select video file...") },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("extractor_input"),
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = DeckEmerald,
+                        unfocusedBorderColor = DeckBorderGlass,
+                        focusedTextColor = DeckTextPrimary,
+                        unfocusedTextColor = DeckTextPrimary
+                    )
+                )
+
+                OutlinedButton(
+                    onClick = { filePickerLauncher.launch("video/*") },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = DeckEmerald),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, DeckEmerald.copy(alpha = 0.6f)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.testTag("browse_extractor_file_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FolderOpen,
+                        contentDescription = "Browse file",
+                        tint = DeckEmerald,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Browse", fontSize = 11.sp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("128k", "192k", "320k").forEach { bitrate ->
+                        FilterChip(
+                            selected = uiState.extractorBitrate == bitrate,
+                            onClick = { viewModel.setExtractorBitrate(bitrate) },
+                            label = { Text(bitrate, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = DeckEmerald.copy(alpha = 0.2f),
+                                selectedLabelColor = DeckEmerald
+                            )
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = { viewModel.startAudioExtraction() },
+                    enabled = !uiState.isSubmittingJob,
+                    colors = ButtonDefaults.buttonColors(containerColor = DeckEmerald),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.testTag("start_extractor_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.GraphicEq,
+                        contentDescription = null,
+                        tint = DeckBackground,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Extract", color = DeckBackground, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MediaCompressorCard(uiState: DashboardUiState, viewModel: DashboardViewModel) {
+    val context = LocalContext.current
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            val localPath = FileUtils.resolveUriToLocalPath(context, it)
+            viewModel.setCompressorInputFile(localPath)
+        }
+    }
+
+    GlassCard(
+        modifier = Modifier
+            .width(330.dp)
+            .testTag("main_tool_card_compressor"),
+        shape = RoundedCornerShape(22.dp),
+        borderColor = DeckAmber.copy(alpha = 0.35f),
+        topGlowColor = DeckAmber,
+        topGlowFraction = 0.7f
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(DeckAmber.copy(alpha = 0.15f))
+                            .border(1.dp, DeckAmber.copy(alpha = 0.40f), RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = null,
+                            tint = DeckAmber,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Media Compressor",
+                            color = DeckTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "ffmpeg presets",
+                            color = DeckAmber,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .background(DeckAmber.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "MEDIA",
+                        color = DeckAmber,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Compress local video or audio using mobile-tuned energy efficient presets.",
+                color = DeckTextSecondary,
+                fontSize = 12.sp,
+                maxLines = 2,
+                lineHeight = 16.sp
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = uiState.compressorInputFile,
+                    onValueChange = { viewModel.setCompressorInputFile(it) },
+                    label = { Text("Source File") },
+                    placeholder = { Text("Select video or path...") },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("compressor_input"),
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = DeckAmber,
+                        unfocusedBorderColor = DeckBorderGlass,
+                        focusedTextColor = DeckTextPrimary,
+                        unfocusedTextColor = DeckTextPrimary
+                    )
+                )
+
+                OutlinedButton(
+                    onClick = { filePickerLauncher.launch("video/*") },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = DeckAmber),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, DeckAmber.copy(alpha = 0.6f)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.testTag("browse_compressor_file_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FolderOpen,
+                        contentDescription = "Browse file",
+                        tint = DeckAmber,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Browse", fontSize = 11.sp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("LOW", "MEDIUM", "ULTRA").forEach { preset ->
+                        FilterChip(
+                            selected = uiState.compressorPreset == preset,
+                            onClick = { viewModel.setCompressorPreset(preset) },
+                            label = { Text(preset, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = DeckAmber.copy(alpha = 0.2f),
+                                selectedLabelColor = DeckAmber
+                            )
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = { viewModel.startMediaCompression() },
+                    enabled = !uiState.isSubmittingJob,
+                    colors = ButtonDefaults.buttonColors(containerColor = DeckAmber),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.testTag("start_compress_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        tint = DeckBackground,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Compress", color = DeckBackground, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TtsVoiceCard(uiState: DashboardUiState, viewModel: DashboardViewModel) {
+    GlassCard(
+        modifier = Modifier
+            .width(330.dp)
+            .testTag("main_tool_card_tts"),
+        shape = RoundedCornerShape(22.dp),
+        borderColor = DeckPurple.copy(alpha = 0.35f),
+        topGlowColor = DeckPurple,
+        topGlowFraction = 0.7f
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(DeckPurple.copy(alpha = 0.15f))
+                            .border(1.dp, DeckPurple.copy(alpha = 0.40f), RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.VolumeUp,
+                            contentDescription = null,
+                            tint = DeckPurple,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Voice Synthesizer",
+                            color = DeckTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "edge-tts CLI",
+                            color = DeckPurple,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .background(DeckPurple.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "AI VOICE",
+                        color = DeckPurple,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Synthesize natural spoken neural voice audio files without any API keys.",
+                color = DeckTextSecondary,
+                fontSize = 12.sp,
+                maxLines = 2,
+                lineHeight = 16.sp
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            OutlinedTextField(
+                value = uiState.ttsText,
+                onValueChange = { viewModel.setTtsText(it) },
+                label = { Text("Text to Read") },
+                placeholder = { Text("Termux CommandDeck is connected and operational.") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("tts_text_input"),
+                singleLine = true,
+                shape = RoundedCornerShape(10.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = DeckPurple,
+                    unfocusedBorderColor = DeckBorderGlass,
+                    focusedTextColor = DeckTextPrimary,
+                    unfocusedTextColor = DeckTextPrimary
+                )
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(
+                        "en-US-ChristopherNeural" to "Christopher",
+                        "en-US-JennyNeural" to "Jenny"
+                    ).forEach { (voiceId, label) ->
+                        FilterChip(
+                            selected = uiState.ttsVoice == voiceId,
+                            onClick = { viewModel.setTtsVoice(voiceId) },
+                            label = { Text(label, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = DeckPurple.copy(alpha = 0.2f),
+                                selectedLabelColor = DeckPurple
+                            )
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = { viewModel.startTts() },
+                    enabled = !uiState.isSubmittingJob,
+                    colors = ButtonDefaults.buttonColors(containerColor = DeckPurple),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.testTag("start_tts_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.VolumeUp,
+                        contentDescription = null,
+                        tint = DeckBackground,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Speak", color = DeckBackground, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
             }
         }
     }
@@ -704,135 +1168,78 @@ fun TtsForm(uiState: DashboardUiState, viewModel: DashboardViewModel) {
 
 @Composable
 fun NativeToolsetSection(
-    selectedToolTab: Int,
-    onSelectTab: (Int) -> Unit,
     uiState: DashboardUiState,
     viewModel: DashboardViewModel
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp)
+            .padding(vertical = 12.dp)
     ) {
-        Text(
-            text = "NATIVE TOOLSET",
-            color = DeckTextSecondary,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // 3-tile selection row matching the Frosted Glass design
+        // Single clean header directly above horizontal carousel with "See All" button
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            ToolsetTile(
-                modifier = Modifier.weight(1f),
-                title = "Downloader",
-                subtitle = "yt-dlp binary",
-                icon = Icons.Default.CloudDownload,
-                gradientColor = DeckCyan,
-                isSelected = selectedToolTab == 0,
-                onClick = { onSelectTab(0) }
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "MAIN CLI TOOLS",
+                    color = DeckTextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .background(DeckCyan.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        text = "4 ACTIVE",
+                        color = DeckCyan,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
 
-            ToolsetTile(
-                modifier = Modifier.weight(1f),
-                title = "Compressor",
-                subtitle = "ffmpeg presets",
-                icon = Icons.Default.Tune,
-                gradientColor = DeckPurple,
-                isSelected = selectedToolTab == 1,
-                onClick = { onSelectTab(1) }
-            )
-
-            ToolsetTile(
-                modifier = Modifier.weight(1f),
-                title = "TTS Voice",
-                subtitle = "edge-tts",
-                icon = Icons.Default.VolumeUp,
-                gradientColor = DeckAmber,
-                isSelected = selectedToolTab == 2,
-                onClick = { onSelectTab(2) }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Tool execution parameter form in Frosted Glass Card
-        GlassCard(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            borderColor = when (selectedToolTab) {
-                0 -> DeckCyan
-                1 -> DeckPurple
-                else -> DeckAmber
-            }.copy(alpha = 0.35f)
-        ) {
-            when (selectedToolTab) {
-                0 -> MediaDownloaderForm(uiState, viewModel)
-                1 -> MediaCompressorForm(uiState, viewModel)
-                2 -> TtsForm(uiState, viewModel)
+            TextButton(
+                onClick = { viewModel.setCatalogDialogVisible(true) },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                modifier = Modifier.testTag("see_all_tools_button")
+            ) {
+                Text(
+                    text = "See All (${uiState.allTools.size}) →",
+                    color = DeckCyan,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
-    }
-}
 
-@Composable
-fun ToolsetTile(
-    modifier: Modifier = Modifier,
-    title: String,
-    subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    gradientColor: Color,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    val bgBrush = Brush.linearGradient(
-        colors = if (isSelected) {
-            listOf(gradientColor.copy(alpha = 0.28f), Color.White.copy(alpha = 0.06f))
-        } else {
-            listOf(gradientColor.copy(alpha = 0.12f), Color.Transparent)
-        }
-    )
+        Spacer(modifier = Modifier.height(10.dp))
 
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(bgBrush)
-            .border(
-                width = if (isSelected) 1.5.dp else 1.dp,
-                color = if (isSelected) gradientColor.copy(alpha = 0.70f) else Color.White.copy(alpha = 0.10f),
-                shape = RoundedCornerShape(20.dp)
-            )
-            .clickable(onClick = onClick)
-            .padding(12.dp)
-    ) {
-        Column(
+        // Clean horizontal scroll LazyRow of the 4 main tools with identical size, style, and richness
+        LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.SpaceBetween
+            contentPadding = PaddingValues(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = title,
-                tint = if (isSelected) gradientColor else DeckTextSecondary,
-                modifier = Modifier.size(22.dp)
-            )
-            Spacer(modifier = Modifier.height(14.dp))
-            Column {
-                Text(
-                    text = title,
-                    color = DeckTextPrimary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = subtitle,
-                    color = DeckTextSecondary,
-                    fontSize = 10.sp
-                )
+            item {
+                MediaDownloaderCard(uiState = uiState, viewModel = viewModel)
+            }
+            item {
+                AudioExtractorCard(uiState = uiState, viewModel = viewModel)
+            }
+            item {
+                MediaCompressorCard(uiState = uiState, viewModel = viewModel)
+            }
+            item {
+                TtsVoiceCard(uiState = uiState, viewModel = viewModel)
             }
         }
     }

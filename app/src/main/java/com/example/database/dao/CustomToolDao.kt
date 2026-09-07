@@ -16,6 +16,12 @@ interface CustomToolDao {
     @Query("SELECT * FROM custom_tools WHERE enabled = 1 ORDER BY sortOrder ASC, createdAt ASC")
     fun getEnabledTools(): Flow<List<CustomToolEntity>>
 
+    @Query("SELECT * FROM custom_tools WHERE isPinned = 1 AND enabled = 1 ORDER BY sortOrder ASC, createdAt ASC")
+    fun getPinnedTools(): Flow<List<CustomToolEntity>>
+
+    @Query("SELECT * FROM custom_tools WHERE category = :category AND enabled = 1 ORDER BY sortOrder ASC, createdAt ASC")
+    fun getToolsByCategory(category: String): Flow<List<CustomToolEntity>>
+
     @Query("SELECT * FROM custom_tools WHERE id = :id LIMIT 1")
     suspend fun getToolById(id: String): CustomToolEntity?
 
@@ -34,6 +40,12 @@ interface CustomToolDao {
     @Query("UPDATE custom_tools SET enabled = :enabled WHERE id = :id")
     suspend fun setToolEnabled(id: String, enabled: Boolean)
 
+    @Query("UPDATE custom_tools SET isPinned = :isPinned WHERE id = :id")
+    suspend fun setToolPinned(id: String, isPinned: Boolean)
+
     @Query("UPDATE custom_tools SET sortOrder = :order WHERE id = :id")
     suspend fun updateSortOrder(id: String, order: Int)
+
+    @Query("SELECT COUNT(*) FROM custom_tools")
+    suspend fun getToolCount(): Int
 }

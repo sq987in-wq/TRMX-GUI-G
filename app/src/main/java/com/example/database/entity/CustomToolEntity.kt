@@ -11,30 +11,41 @@ import org.json.JSONObject
 @Entity(tableName = "custom_tools")
 data class CustomToolEntity(
     @PrimaryKey val id: String,
-    val name: String,
-    val icon: String,
-    val accentColorHex: String,
-    val description: String,
-    val inputDefinitionsJson: String,
+    val title: String,
+    val category: String,
     val executable: String,
-    val argumentsJson: String,
-    val enabled: Boolean,
-    val sortOrder: Int,
-    val createdAt: Long,
-    val updatedAt: Long
+    val argsTemplate: String,
+    val inputType: String,
+    val accentColor: String,
+    val isPinned: Boolean = false,
+    val description: String = "",
+    val icon: String = "terminal",
+    val inputDefinitionsJson: String = "",
+    val argumentsJson: String = "",
+    val enabled: Boolean = true,
+    val sortOrder: Int = 0,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
 ) {
+    val name: String get() = title
+    val accentColorHex: String get() = accentColor
+
     fun toDomain(): CustomTool {
         val inputDefs = parseInputsJson(inputDefinitionsJson)
         val args = parseArgsJson(argumentsJson)
         return CustomTool(
             id = id,
-            name = name,
-            icon = icon,
-            accentColorHex = accentColorHex,
-            description = description,
-            inputDefinitions = inputDefs,
+            title = title,
+            category = category,
             executable = executable,
-            arguments = args,
+            argsTemplate = argsTemplate,
+            inputType = inputType,
+            accentColor = accentColor,
+            isPinned = isPinned,
+            description = description,
+            icon = icon,
+            inputDefinitions = if (inputDefs.isNotEmpty()) inputDefs else createDefaultInputDefs(inputType),
+            arguments = if (args.isNotEmpty()) args else CustomTool.splitArgs(argsTemplate),
             enabled = enabled,
             sortOrder = sortOrder,
             createdAt = createdAt,
@@ -43,15 +54,34 @@ data class CustomToolEntity(
     }
 
     companion object {
+        fun createDefaultInputDefs(inputType: String): List<ToolInputDefinition> {
+            return when (inputType) {
+                "NONE" -> emptyList()
+                "FILE_PATH" -> listOf(
+                    ToolInputDefinition("input", "File Path", ToolInputType.FILE_PATH, placeholder = "Select or enter file path", required = true)
+                )
+                "DIRECTORY" -> listOf(
+                    ToolInputDefinition("input", "Directory", ToolInputType.DIRECTORY, placeholder = "Select or enter directory", required = true)
+                )
+                else -> listOf(
+                    ToolInputDefinition("input", "Input / Arguments", ToolInputType.TEXT, placeholder = "Enter input...", required = true)
+                )
+            }
+        }
+
         fun fromDomain(tool: CustomTool): CustomToolEntity {
             return CustomToolEntity(
                 id = tool.id,
-                name = tool.name,
-                icon = tool.icon,
-                accentColorHex = tool.accentColorHex,
-                description = tool.description,
-                inputDefinitionsJson = serializeInputs(tool.inputDefinitions),
+                title = tool.title,
+                category = tool.category,
                 executable = tool.executable,
+                argsTemplate = tool.argsTemplate,
+                inputType = tool.inputType,
+                accentColor = tool.accentColor,
+                isPinned = tool.isPinned,
+                description = tool.description,
+                icon = tool.icon,
+                inputDefinitionsJson = serializeInputs(tool.inputDefinitions),
                 argumentsJson = serializeArgs(tool.arguments),
                 enabled = tool.enabled,
                 sortOrder = tool.sortOrder,

@@ -6,11 +6,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.preferences.AppPreferencesRepository
 import com.example.data.preferences.DeckPreferences
+import com.example.data.repository.CustomToolRepository
 import com.example.data.repository.ServerHealthRepository
 import com.example.data.repository.TermuxJobRepository
 import com.example.data.system.DeviceSystemStatus
 import com.example.data.system.SystemStatusProvider
 import com.example.database.AppDatabase
+import com.example.model.CustomTool
 import com.example.model.Job
 import com.example.model.JobStatus
 import com.example.model.OutputFile
@@ -40,8 +42,15 @@ data class DashboardUiState(
     val mediaUrl: String = "",
     val compressorInputFile: String = "",
     val compressorPreset: String = "MEDIUM", // LOW, MEDIUM, ULTRA
+    val extractorInputFile: String = "",
+    val extractorBitrate: String = "192k", // 128k, 192k, 320k
     val ttsText: String = "",
-    val ttsVoice: String = "en-US-ChristopherNeural"
+    val ttsVoice: String = "en-US-ChristopherNeural",
+    val pinnedTools: List<CustomTool> = emptyList(),
+    val allTools: List<CustomTool> = emptyList(),
+    val showCatalogDialog: Boolean = false,
+    val catalogCategory: String = "All",
+    val executionDialogTool: CustomTool? = null
 )
 
 class DashboardViewModel(
@@ -52,6 +61,7 @@ class DashboardViewModel(
     private val preferencesRepo = AppPreferencesRepository(application)
     private val healthRepo = ServerHealthRepository()
     private val systemStatusProvider = SystemStatusProvider(application)
+    private val customToolRepo = CustomToolRepository(db.customToolDao())
 
     private val jobRepo = TermuxJobRepository(
         context = application,
@@ -100,6 +110,57 @@ class DashboardViewModel(
                 }
             }
         }
+
+        // Observe pinned tools
+        viewModelScope.launch {
+            customToolRepo.pinnedToolsFlow.collect { pinned ->
+                _uiState.update { it.copy(pinnedTools = pinned) }
+            }
+        }
+
+        // Observe all tools
+        viewModelScope.launch {
+            customToolRepo.enabledToolsFlow.collect { tools ->
+                _uiState.update { it.copy(allTools = tools) }
+            }
+        }
+    }
+
+    fun setCatalogDialogVisible(visible: Boolean) {
+        _uiState.update { it.copy(showCatalogDialog = visible) }
+    }
+
+    fun setCatalogCategory(category: String) {
+        _uiState.update { it.copy(catalogCategory = category) }
+    }
+
+    fun openToolExecution(tool: CustomTool) {
+        if (tool.inputType == "NONE" && (tool.inputDefinitions.isEmpty() || tool.inputDefinitions.all { !it.required })) {
+            executeCustomTool(tool, emptyMap())
+        } else {
+            _uiState.update { it.copy(executionDialogTool = tool) }
+        }
+    }
+
+    fun dismissToolExecution() {
+        _uiState.update { it.copy(executionDialogTool = null) }
+    }
+
+    fun toggleToolPinned(toolId: String, isPinned: Boolean) {
+        viewModelScope.launch {
+            customToolRepo.toggleToolPinned(toolId, isPinned)
+        }
+    }
+
+    fun executeCustomTool(tool: CustomTool, inputs: Map<String, String>) {
+        _uiState.update { it.copy(executionDialogTool = null) }
+        val resolvedArgs = tool.resolveArguments(inputs)
+        submitJobInternal(
+            type = "CUSTOM_TOOL",
+            executable = tool.executable,
+            arguments = resolvedArgs,
+            description = "${tool.title}: ${resolvedArgs.joinToString(" ").take(40)}"
+        )
     }
 
     fun updateSystemStatus() {
@@ -220,6 +281,40 @@ class DashboardViewModel(
             executable = "ffmpeg",
             arguments = args,
             description = "Compress: $input (${_uiState.value.compressorPreset})"
+        )
+    }
+
+    fun setExtractorInputFile(path: String) {
+        _uiState.update { it.copy(extractorInputFile = path) }
+    }
+
+    fun setExtractorBitrate(bitrate: String) {
+        _uiState.update { it.copy(extractorBitrate = bitrate) }
+    }
+
+    // Audio Extractor Tool using ffmpeg structurally
+    fun startAudioExtraction() {
+        val input = _uiState.value.extractorInputFile.trim()
+        if (input.isEmpty()) {
+            _uiState.update { it.copy(messageSnackbar = "Please specify a source media path") }
+            return
+        }
+
+        val bitrate = _uiState.value.extractorBitrate
+        val args = listOf(
+            "-i", input,
+            "-vn",
+            "-acodec", "libmp3lame",
+            "-b:a", bitrate,
+            "-y",
+            "output/extracted_audio.mp3"
+        )
+
+        submitJobInternal(
+            type = "AUDIO_EXTRACT",
+            executable = "ffmpeg",
+            arguments = args,
+            description = "Extract Audio: $input ($bitrate)"
         )
     }
 
